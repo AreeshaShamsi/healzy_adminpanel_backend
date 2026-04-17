@@ -5,6 +5,7 @@ import connectDB from "./config/db.js";
 import blogRoutes from "./routes/blogRoutes.js";
 import authorRoutes from "./routes/authorRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
+import testRoutes from "./routes/testRoutes.js";
 import { errorHandler } from "./middleware/errorMiddleware.js";
 import { verifyCloudinaryConnection } from "./config/cloudinary.js";
 
@@ -18,6 +19,7 @@ app.use(express.json({ limit: "5mb" }));
 app.use("/api/blog", blogRoutes);
 app.use("/api/authors", authorRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api", testRoutes);
 
 // Backward compatibility
 app.use("/blogs", blogRoutes);

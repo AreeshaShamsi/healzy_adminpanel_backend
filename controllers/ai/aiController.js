@@ -1,17 +1,5 @@
 import aiOrchestrator from "../../services/ai/aiOrchestrator.js";
 
-const sendSSE = (res, payload) => {
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
-};
-
-const streamContentChunks = async (res, content) => {
-  const chunkSize = 350;
-  for (let i = 0; i < content.length; i += chunkSize) {
-    const chunk = content.slice(i, i + chunkSize);
-    sendSSE(res, { type: "content_chunk", data: chunk });
-  }
-};
-
 export const generateAll = async (req, res, next) => {
   try {
     const {
@@ -30,11 +18,6 @@ export const generateAll = async (req, res, next) => {
       });
     }
 
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
-
     const content = await aiOrchestrator.generateContent({
       topic,
       primary_keyword,
@@ -44,21 +27,11 @@ export const generateAll = async (req, res, next) => {
       provider,
     });
 
-    await streamContentChunks(res, content.content_mdx);
-
     const seo = await aiOrchestrator.generateSEO({
       topic,
       primary_keyword,
       blog_body: content.content_mdx,
       provider,
-    });
-    sendSSE(res, {
-      type: "seo_update",
-      data: {
-        meta_title: seo.meta_title,
-        meta_description: seo.meta_description,
-        slug: seo.slug,
-      },
     });
 
     const aeo = await aiOrchestrator.generateAEO({
@@ -66,45 +39,32 @@ export const generateAll = async (req, res, next) => {
       blog_body: content.content_mdx,
       provider,
     });
-    sendSSE(res, {
-      type: "aeo_update",
-      data: {
-        aeo_answer_block: aeo.aeo_answer_block,
-        faq_json: aeo.faq_json,
-      },
-    });
 
     const aio = await aiOrchestrator.generateAIO({
       blog_body: content.content_mdx,
       provider,
     });
-    sendSSE(res, {
-      type: "aio_update",
+
+    return res.status(200).json({
+      success: true,
       data: {
+        content_mdx: content.content_mdx,
+        meta_title: seo.meta_title,
+        meta_description: seo.meta_description,
+        slug: seo.slug,
+        aeo_answer_block: aeo.aeo_answer_block,
+        faq_json: aeo.faq_json,
         llm_summary: aio.llm_summary,
         entities: aio.entities,
+        ai_provider_used:
+          aio.providerUsed ||
+          aeo.providerUsed ||
+          seo.providerUsed ||
+          content.providerUsed,
       },
     });
-
-    sendSSE(res, {
-      type: "done",
-      data: {
-        ai_provider_used: aio.providerUsed || aeo.providerUsed || seo.providerUsed || content.providerUsed,
-      },
-    });
-
-    res.end();
   } catch (error) {
-    if (!res.headersSent) {
-      return next(error);
-    }
-
-    sendSSE(res, {
-      type: "error",
-      data: error.message,
-    });
-
-    res.end();
+    next(error);
   }
 };
 
