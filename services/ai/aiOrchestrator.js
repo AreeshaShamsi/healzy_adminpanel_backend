@@ -1,88 +1,113 @@
 import geminiService from "./gemini.service.js";
 
 /**
- * 🧼 Safe JSON extractor (handles markdown + messy LLM output)
+ * ⏳ Delay helper
+ */
+const delay = (ms) => new Promise((res) => setTimeout(res, ms));
+
+/**
+ * 🧼 Strong JSON extractor
  */
 function extractJSON(text) {
   if (!text || typeof text !== "string") {
-    throw new Error("Empty response from Gemini");
+    throw new Error("Empty AI response");
   }
 
+  let cleaned = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .replace(/\n/g, " ")
+    .replace(/\r/g, "")
+    .trim();
+
+  // Try direct parse
   try {
-    return JSON.parse(text);
-  } catch (e) {
-    // remove markdown wrappers if Gemini adds them
-    const cleaned = text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-
     return JSON.parse(cleaned);
+  } catch {}
+
+  // Extract JSON block
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+
+  if (start !== -1 && end !== -1) {
+    let jsonString = cleaned.slice(start, end + 1);
+
+    jsonString = jsonString
+      .replace(/,\s*}/g, "}")
+      .replace(/,\s*]/g, "]")
+      .replace(/\s+/g, " ");
+
+    return JSON.parse(jsonString);
   }
+
+  throw new Error("Invalid JSON");
 }
 
 /**
- * 🚀 Combined Content + SEO (100-word blog)
+ * 🛠 Fix broken JSON using AI
  */
-export const generateAllInOne = async (payload = {}) => {
-  console.log("🧪 Combined generation started...");
-
-  if (!payload.topic) {
-    throw new Error("Topic is required");
-  }
-
+async function fixJSON(brokenText) {
   const prompt = `
-You are a strict JSON generator.
+Fix this JSON and return ONLY valid JSON:
 
-Rules:
-- Output ONLY valid JSON
-- No markdown
-- No explanation
-- No extra text
-- No backticks
+${brokenText}
+`;
 
-Return this format exactly:
-
-{
-  "content": "100-word blog here",
-  "seo": {
-    "title": "short SEO title",
-    "description": "meta description",
-    "keywords": "comma separated keywords"
-  }
+  const fixed = await geminiService.generate(prompt);
+  return extractJSON(fixed);
 }
 
-Topic: ${payload.topic}
-`.trim();
+/**
+ * 🤖 Providers (add more later)
+ */
+const providers = [
+  {
+    name: "gemini",
+    handler: geminiService.generate,
+  },
+];
 
-  try {
-    const result = await geminiService.generate(prompt);
+/**
+ * 🚀 Core AI generator
+ */
+export const generate = async ({
+  prompt,
+  expectJSON = false,
+  retries = 2,
+}) => {
+  if (!prompt) throw new Error("Prompt required");
 
-    const parsed = extractJSON(result);
+  for (const provider of providers) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        console.log(`🤖 ${provider.name} | Attempt ${attempt + 1}`);
 
-    // strict validation
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      !parsed.content ||
-      !parsed.seo ||
-      !parsed.seo.title
-    ) {
-      throw new Error("Invalid JSON structure from Gemini");
+        const result = await provider.handler(prompt);
+
+        if (!result) throw new Error("Empty response");
+
+        if (!expectJSON) return result.trim();
+
+        try {
+          return extractJSON(result);
+        } catch {
+          console.log("⚠️ Fixing JSON...");
+          return await fixJSON(result);
+        }
+
+      } catch (err) {
+        console.log(`⚠️ ${provider.name} failed:`, err.message);
+
+        if (attempt < retries) {
+          await delay(1500);
+        } else {
+          console.log("❌ Switching provider...");
+        }
+      }
     }
-
-    return {
-      success: true,
-      provider: "gemini",
-      data: parsed,
-    };
-  } catch (err) {
-    console.error("❌ AI Error:", err.message);
-
-    throw err;
   }
+
+  throw new Error("All AI providers failed");
 };
 
-export default {
-  generateAllInOne,
-};
+export default { generate };

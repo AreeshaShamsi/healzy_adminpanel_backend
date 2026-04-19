@@ -8,6 +8,7 @@ import aiRoutes from "./routes/aiRoutes.js";
 import testRoutes from "./routes/testRoutes.js";
 import { errorHandler } from "./middleware/errorMiddleware.js";
 import { verifyCloudinaryConnection } from "./config/cloudinary.js";
+import aiRoutesss from "./routes/ai.routes.js";
 
 dotenv.config();
 
@@ -20,6 +21,7 @@ app.use("/api/blog", blogRoutes);
 app.use("/api/authors", authorRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api", testRoutes);
+app.use("/api/ai", aiRoutesss);
 
 // Backward compatibility
 app.use("/blogs", blogRoutes);
