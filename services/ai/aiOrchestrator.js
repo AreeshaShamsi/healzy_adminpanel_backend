@@ -1,4 +1,5 @@
 import geminiService from "./gemini.service.js";
+import ollamaService from "./ollama.service.js";
 
 /**
  * ⏳ Delay helper
@@ -6,7 +7,7 @@ import geminiService from "./gemini.service.js";
 const delay = (ms) => new Promise((res) => setTimeout(res, ms));
 
 /**
- * 🧼 Strong JSON extractor
+ * 🧼 JSON extractor
  */
 function extractJSON(text) {
   if (!text || typeof text !== "string") {
@@ -20,12 +21,10 @@ function extractJSON(text) {
     .replace(/\r/g, "")
     .trim();
 
-  // Try direct parse
   try {
     return JSON.parse(cleaned);
   } catch {}
 
-  // Extract JSON block
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
 
@@ -40,74 +39,110 @@ function extractJSON(text) {
     return JSON.parse(jsonString);
   }
 
-  throw new Error("Invalid JSON");
+  throw new Error("Invalid JSON from AI");
 }
 
 /**
- * 🛠 Fix broken JSON using AI
+ * 🛠 Fix broken JSON using same provider (no fallback switching)
  */
-async function fixJSON(brokenText) {
-  const prompt = `
-Fix this JSON and return ONLY valid JSON:
+async function fixJSON(providerName, brokenText) {
+  const prompt = `Fix this JSON and return ONLY valid JSON:\n${brokenText}`;
 
-${brokenText}
-`;
+  const service =
+    providerName === "gemini" ? geminiService : ollamaService;
 
-  const fixed = await geminiService.generate(prompt);
+  const fixed = await service.generate(prompt);
   return extractJSON(fixed);
 }
 
 /**
- * 🤖 Providers (add more later)
+ * 🤖 Providers registry
  */
-const providers = [
-  {
+const providers = {
+  gemini: {
     name: "gemini",
     handler: geminiService.generate,
   },
-];
+  ollama: {
+    name: "ollama",
+    handler: ollamaService.generate,
+  },
+};
 
 /**
- * 🚀 Core AI generator
+ * 🚀 CORE GENERATOR (NO AUTO FALLBACK)
  */
 export const generate = async ({
   prompt,
+  provider = "gemini", // default fixed
   expectJSON = false,
   retries = 2,
 }) => {
   if (!prompt) throw new Error("Prompt required");
 
-  for (const provider of providers) {
-    for (let attempt = 0; attempt <= retries; attempt++) {
+  const selected = providers[provider];
+
+  if (!selected) {
+    throw new Error(`Invalid provider selected: ${provider}`);
+  }
+
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      console.log(`🤖 Provider: ${selected.name} | Attempt ${attempt + 1}`);
+
+      const result = await selected.handler(prompt);
+
+      if (!result) throw new Error("Empty response from AI");
+
+      // NON-JSON RESPONSE
+      if (!expectJSON) {
+        return {
+          success: true,
+          provider: selected.name,
+          attempt: attempt + 1,
+          data: result.trim(),
+        };
+      }
+
+      // JSON RESPONSE
       try {
-        console.log(`🤖 ${provider.name} | Attempt ${attempt + 1}`);
+        const json = extractJSON(result);
 
-        const result = await provider.handler(prompt);
-
-        if (!result) throw new Error("Empty response");
-
-        if (!expectJSON) return result.trim();
-
-        try {
-          return extractJSON(result);
-        } catch {
-          console.log("⚠️ Fixing JSON...");
-          return await fixJSON(result);
-        }
-
+        return {
+          success: true,
+          provider: selected.name,
+          attempt: attempt + 1,
+          data: json,
+        };
       } catch (err) {
-        console.log(`⚠️ ${provider.name} failed:`, err.message);
+        console.log("⚠️ JSON broken → fixing...");
 
-        if (attempt < retries) {
-          await delay(1500);
-        } else {
-          console.log("❌ Switching provider...");
-        }
+        const fixed = await fixJSON(selected.name, result);
+
+        return {
+          success: true,
+          provider: selected.name,
+          attempt: attempt + 1,
+          data: fixed,
+          fixed: true,
+        };
+      }
+
+    } catch (err) {
+      lastError = err;
+      console.log(`❌ ${selected.name} failed: ${err.message}`);
+
+      if (attempt < retries) {
+        await delay(1500);
       }
     }
   }
 
-  throw new Error("All AI providers failed");
+  throw new Error(
+    `${selected.name} failed after ${retries + 1} attempts. Last error: ${lastError?.message}`
+  );
 };
 
 export default { generate };

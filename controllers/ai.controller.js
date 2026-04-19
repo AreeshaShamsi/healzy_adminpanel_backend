@@ -1,5 +1,24 @@
 import ai from "../services/ai/aiOrchestrator.js";
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const generateSafe = async ({ prompt, expectJSON, provider }, retries = 2) => {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await ai.generate({
+        prompt,
+        expectJSON,
+        provider,
+      });
+    } catch (error) {
+      if (attempt === retries) throw error;
+      if (error.message?.includes("QUOTA_EXHAUSTED")) {
+        await sleep(5000);
+      }
+    }
+  }
+};
+
 /**
  * 🔵 STEP 1: Content Brief
  */
@@ -11,6 +30,7 @@ export const generateBrief = async (req, res) => {
       secondary_keywords,
       industry,
       word_count,
+      provider = "auto",
     } = req.body;
 
     if (!topic) {
@@ -44,12 +64,20 @@ Return ONLY JSON:
 }
 `;
 
-    const data = await ai.generate({
+    const response = await generateSafe({
       prompt,
       expectJSON: true,
+      provider,
     });
 
-    res.json({ success: true, data });
+    const { provider: selectedProvider, attempt, data } = response;
+
+    res.json({
+      success: true,
+      provider: selectedProvider,
+      attempt,
+      data,
+    });
 
   } catch (err) {
     console.error("❌ STEP 1 Error:", err.message);
@@ -70,6 +98,7 @@ export const generateBody = async (req, res) => {
       secondary_keywords,
       industry,
       word_count,
+      provider = "auto",
     } = req.body;
 
     if (!title || !outline) {
@@ -109,14 +138,19 @@ Rules:
 - Return ONLY blog content
 `;
 
-    const result = await ai.generate({
+    const response = await generateSafe({
       prompt,
       expectJSON: false,
+      provider,
     });
+
+    const { provider: selectedProvider, attempt, data } = response;
 
     res.json({
       success: true,
-      data: { blog: result },
+      provider: selectedProvider,
+      attempt,
+      data,
     });
 
   } catch (err) {
@@ -130,7 +164,7 @@ Rules:
  */
 export const generateSEO = async (req, res) => {
   try {
-    const { blog_body, primary_keyword } = req.body;
+    const { blog_body, primary_keyword, provider = "auto" } = req.body;
 
     if (!blog_body || !primary_keyword) {
       return res.status(400).json({
@@ -161,13 +195,18 @@ BLOG:
 ${blog_body}
 `;
 
-    const data = await ai.generate({
+    const response = await generateSafe({
       prompt,
       expectJSON: true,
+      provider,
     });
+
+    const { provider: selectedProvider, attempt, data } = response;
 
     res.json({
       success: true,
+      provider: selectedProvider,
+      attempt,
       data,
     });
 
@@ -186,7 +225,7 @@ ${blog_body}
  */
 export const generateAEO = async (req, res) => {
   try {
-    const { blog_body, title } = req.body;
+    const { blog_body, title, provider = "auto" } = req.body;
 
     if (!blog_body || !title) {
       return res.status(400).json({
@@ -233,10 +272,13 @@ BLOG CONTENT:
 ${blog_body}
 `.trim();
 
-    const data = await ai.generate({
+    const response = await generateSafe({
       prompt,
       expectJSON: true,
+      provider,
     });
+
+    const { provider: selectedProvider, attempt, data } = response;
 
     // extra validation (important)
     if (
@@ -248,6 +290,8 @@ ${blog_body}
 
     res.status(200).json({
       success: true,
+      provider: selectedProvider,
+      attempt,
       data,
     });
 
@@ -266,7 +310,7 @@ ${blog_body}
  */
 export const generateAIO = async (req, res) => {
   try {
-    const { blog_body } = req.body;
+    const { blog_body, provider = "auto" } = req.body;
 
     if (!blog_body) {
       return res.status(400).json({
@@ -314,10 +358,13 @@ ${blog_body}
 - Do NOT truncate response
 `.trim();
 
-    const data = await ai.generate({
+    const response = await generateSafe({
       prompt,
       expectJSON: true,
+      provider,
     });
+
+    const { provider: selectedProvider, attempt, data } = response;
 
     // 🔒 strict validation
     if (
@@ -330,6 +377,8 @@ ${blog_body}
 
     return res.status(200).json({
       success: true,
+      provider: selectedProvider,
+      attempt,
       data,
     });
 
@@ -690,3 +739,237 @@ export const generateSchema = async (req, res) => {
 //     });
 //   }
 // };
+
+
+/**regenerate fields */
+
+export const regenerateField = async (req, res) => {
+  try {
+    const {
+      field,
+      blog_body,
+      title,
+      primary_keyword,
+      provider = "auto"
+    } = req.body;
+
+    if (!field || !blog_body) {
+      return res.status(400).json({
+        success: false,
+        message: "field & blog_body required",
+      });
+    }
+
+    let prompt = "";
+    let expectJSON = true;
+
+    /**
+     * 🟡 SEO FIELDS
+     */
+    if (field === "meta_title") {
+      prompt = `
+Generate ONLY meta_title.
+
+Primary keyword: ${primary_keyword}
+
+Rules:
+- 50–60 characters
+- keyword in first 4 words
+- end with '| Healzy'
+
+Return ONLY:
+{
+  "meta_title": ""
+}
+
+BLOG:
+${blog_body}
+`;
+    }
+
+    else if (field === "meta_description") {
+      prompt = `
+Generate ONLY meta_description.
+
+Primary keyword: ${primary_keyword}
+
+Rules:
+- 140–155 characters
+- include keyword
+- include benefit + CTA
+
+Return ONLY:
+{
+  "meta_description": ""
+}
+
+BLOG:
+${blog_body}
+`;
+    }
+
+    else if (field === "slug") {
+      prompt = `
+Generate ONLY slug.
+
+Rules:
+- lowercase
+- hyphen-separated
+- no stop words
+- max 60 chars
+
+Return ONLY:
+{
+  "slug": ""
+}
+
+BLOG:
+${blog_body}
+`;
+    }
+
+    /**
+     * 🔴 AEO FIELDS
+     */
+    else if (field === "aeo_answer_block") {
+      prompt = `
+Generate ONLY AEO answer block.
+
+Title: ${title}
+
+Rules:
+- 40–60 words
+- simple language
+- first sentence defines
+- second sentence answers
+
+Return ONLY:
+{
+  "aeo_answer_block": ""
+}
+
+BLOG:
+${blog_body}
+`;
+    }
+
+    else if (field === "faq_json") {
+      prompt = `
+Generate ONLY FAQ JSON.
+
+Rules:
+- 6–8 real Google questions
+- answers: 40–80 words
+- direct answer first
+
+Return ONLY:
+{
+  "faq_json": [
+    {
+      "question": "",
+      "answer": ""
+    }
+  ]
+}
+
+BLOG:
+${blog_body}
+`;
+    }
+
+    /**
+     * 🟣 AIO FIELDS
+     */
+    else if (field === "llm_summary") {
+      prompt = `
+Generate ONLY llm_summary.
+
+Rules:
+- 1–3 sentences
+- max 300 chars
+- include what + who + differentiator
+
+Return ONLY:
+{
+  "llm_summary": ""
+}
+
+BLOG:
+${blog_body}
+`;
+    }
+
+    else if (field === "entity_list") {
+      prompt = `
+Extract ONLY entity_list.
+
+Rules:
+- real entities only
+- no vague words
+
+Return ONLY:
+{
+  "entity_list": []
+}
+
+BLOG:
+${blog_body}
+`;
+    }
+
+    else if (field === "internal_link_suggestions") {
+      prompt = `
+Generate ONLY internal link suggestions.
+
+Rules:
+- 3–5 SEO slugs
+- keyword-focused
+
+Return ONLY:
+{
+  "internal_link_suggestions": []
+}
+
+BLOG:
+${blog_body}
+`;
+    }
+
+    else {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid field",
+      });
+    }
+
+    /**
+     * 🚀 AI CALL
+     */
+    const data = await generateSafe({
+      prompt,
+      expectJSON,
+      provider,
+    });
+
+    /**
+     * 🔒 STRICT VALIDATION
+     */
+    if (!data || typeof data !== "object" || !(field in data)) {
+      throw new Error(`Invalid response for ${field}`);
+    }
+
+    return res.json({
+      success: true,
+      field,
+      value: data[field],
+    });
+
+  } catch (err) {
+    console.error("❌ REGENERATE ERROR:", err.message);
+
+    return res.status(500).json({
+      success: false,
+      message: err.message,
+    });
+  }
+};
