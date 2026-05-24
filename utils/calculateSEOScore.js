@@ -41,10 +41,10 @@ export const calculateSEOScore = (blog = {}) => {
     failedChecks.push("Cover image URL and alt text are required");
   }
 
-  const aeoWords = countWords(blog.aeo_answer_block || "");
-  if (aeoWords < 40 || aeoWords > 60) {
+  const answerWords = countWords(blog.answer_block || "");
+  if (answerWords < 40 || answerWords > 60) {
     score -= 10;
-    failedChecks.push("AEO answer block must be 40-60 words");
+    failedChecks.push("Answer block must be 40-60 words");
   }
 
   if (!Array.isArray(blog.faq_json) || blog.faq_json.length < 4) {
@@ -52,10 +52,10 @@ export const calculateSEOScore = (blog = {}) => {
     failedChecks.push("FAQ must contain at least 4 items");
   }
 
-  const summaryLen = (blog.llm_summary || "").length;
+  const summaryLen = (blog.content_summary || "").length;
   if (!summaryLen || summaryLen > 300) {
     score -= 15;
-    failedChecks.push("LLM summary must be <= 300 characters");
+    failedChecks.push("Content summary must be <= 300 characters");
   }
 
   return {

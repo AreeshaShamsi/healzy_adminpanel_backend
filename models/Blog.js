@@ -64,6 +64,11 @@ const blogSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
+    author_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Author",
+      required: [true, "Author is required"],
+    },
     content_mdx: {
       type: String,
       required: true,
@@ -82,7 +87,7 @@ const blogSchema = new mongoose.Schema(
         },
       ],
     },
-    aeo_answer_block: {
+    answer_block: {
       type: String,
       required: true,
       validate: {
@@ -90,7 +95,7 @@ const blogSchema = new mongoose.Schema(
           const words = countWords(v);
           return words >= 40 && words <= 60;
         },
-        message: "AEO answer block must be between 40 and 60 words",
+        message: "Answer block must be between 40 and 60 words",
       },
     },
     faq_json: {
@@ -119,26 +124,21 @@ const blogSchema = new mongoose.Schema(
         },
       ],
     },
-    llm_summary: {
+    content_summary: {
       type: String,
       required: true,
-      maxlength: [300, "LLM summary cannot exceed 300 characters"],
+      maxlength: [300, "Content summary cannot exceed 300 characters"],
       validate: {
         validator(v) {
           const sentences = v.split(/[.!?]+/).filter(Boolean);
           return sentences.length >= 1 && sentences.length <= 3;
         },
-        message: "LLM summary must be between 1 and 3 sentences",
+        message: "Content summary must be between 1 and 3 sentences",
       },
     },
     entities: {
       type: [String],
       default: [],
-    },
-    ai_provider_used: {
-      type: String,
-      default: "",
-      trim: true,
     },
     versions: {
       type: [versionSchema],
