@@ -6,12 +6,23 @@ import blogRoutes from "./routes/blogRoutes.js";
 import authorRoutes from "./routes/authorRoutes.js";
 import { errorHandler } from "./middleware/errorMiddleware.js";
 import { verifyCloudinaryConnection } from "./config/cloudinary.js";
+import { getActiveApiUrl, getApiUrls } from "./config/apiUrls.js";
 
 dotenv.config();
 
 const app = express();
 
-app.use(cors());
+const corsOrigins = (process.env.CORS_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: corsOrigins.length ? corsOrigins : true,
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: "5mb" }));
 
 app.use("/api/blog", blogRoutes);
@@ -22,25 +33,54 @@ app.use("/blogs", blogRoutes);
 app.use("/authors", authorRoutes);
 
 app.get("/", (req, res) => {
-  res.send("API running");
+  const urls = getApiUrls();
+  const base = getActiveApiUrl();
+
+  res.json({
+    message: "API running",
+    urls: {
+      local: urls.local,
+      production: urls.production,
+      active: urls.active,
+      env: urls.env,
+    },
+    routes: {
+      authors: `${base}/api/authors`,
+      blog: `${base}/api/blog`,
+      health: `${base}/`,
+    },
+  });
 });
 
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
+const isVercel = process.env.VERCEL === "1";
 
 const startServer = async () => {
   try {
     await connectDB();
-    await verifyCloudinaryConnection();
+    if (!isVercel) {
+      await verifyCloudinaryConnection();
+    }
 
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on http://localhost:${PORT}`);
-    });
+    if (!isVercel) {
+      const urls = getApiUrls();
+      app.listen(PORT, "0.0.0.0", () => {
+        console.log(`Server running (${urls.env}): ${urls.active}`);
+        console.log(`  Local:      ${urls.local}`);
+        console.log(`  Production: ${urls.production}`);
+      });
+    }
   } catch (error) {
     console.error("Server failed to start:", error.message);
-    process.exit(1);
+    if (!isVercel) {
+      process.exit(1);
+    }
+    throw error;
   }
 };
 
 startServer();
+
+export default app;
