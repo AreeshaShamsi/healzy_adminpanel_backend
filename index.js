@@ -12,17 +12,7 @@ dotenv.config();
 
 const app = express();
 
-const corsOrigins = (process.env.CORS_ORIGINS || "")
-  .split(",")
-  .map((origin) => origin.trim())
-  .filter(Boolean);
-
-app.use(
-  cors({
-    origin: corsOrigins.length ? corsOrigins : true,
-    credentials: true,
-  })
-);
+app.use(cors());
 app.use(express.json({ limit: "5mb" }));
 
 app.use("/api/blog", blogRoutes);
