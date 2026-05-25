@@ -18,6 +18,16 @@ const parseMaybeJson = (value, fieldName) => {
   }
 };
 
+const ensureArray = (value, fieldName) => {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (!Array.isArray(value)) {
+    const error = new Error(`Field '${fieldName}' must be a JSON array`);
+    error.statusCode = 400;
+    throw error;
+  }
+  return value;
+};
+
 const normalizeArrayField = (value) => {
   if (Array.isArray(value)) return value;
   if (typeof value === "string") {
@@ -54,6 +64,9 @@ export const createBlog = async (req, res, next) => {
     );
     blogData.external_links = parseMaybeJson(blogData.external_links, "external_links");
 
+    blogData.internal_links = ensureArray(blogData.internal_links, "internal_links");
+    blogData.faq_json = ensureArray(blogData.faq_json, "faq_json");
+
     if (req.file) {
       blogData.cover_image_url = req.file.path;
     }
@@ -71,8 +84,13 @@ export const createBlog = async (req, res, next) => {
 
     if (blogData.content_mdx) {
       const linkFields = applyLinkExtraction(blogData.content_mdx);
-      blogData.internal_links = linkFields.internal_links;
-      blogData.external_links = linkFields.external_links;
+      // Keep explicit multipart values if provided; otherwise derive from content.
+      if (!Array.isArray(blogData.internal_links)) {
+        blogData.internal_links = linkFields.internal_links;
+      }
+      if (!Array.isArray(blogData.external_links)) {
+        blogData.external_links = linkFields.external_links;
+      }
       blogData.reading_time = estimateReadingTime(blogData.content_mdx);
       blogData.versions = [buildVersion(blogData.content_mdx)];
     }

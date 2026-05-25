@@ -219,7 +219,7 @@ const blogSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-blogSchema.pre("save", function preSave(next) {
+blogSchema.pre("save", function preSave() {
   if (this.content_mdx) {
     this.reading_time = Math.max(1, Math.ceil(countWords(this.content_mdx) / 200));
   }
@@ -227,8 +227,6 @@ blogSchema.pre("save", function preSave(next) {
   if (this.status === "published" && !this.published_at) {
     this.published_at = new Date();
   }
-
-  next();
 });
 
 const Blog = mongoose.model("Blog", blogSchema);
