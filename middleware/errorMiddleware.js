@@ -2,6 +2,11 @@ export const errorHandler = (err, req, res, next) => {
   let statusCode = err.statusCode || (res.statusCode === 200 ? 500 : res.statusCode);
   let message = err.message || "Internal Server Error";
 
+  if (err.name === "MulterError") {
+    statusCode = 400;
+    message = `Upload error: ${err.message}`;
+  }
+
   if (err.name === "CastError" && err.kind === "ObjectId") {
     message = "Resource not found / Invalid ID";
     statusCode = 404;
@@ -18,6 +23,14 @@ export const errorHandler = (err, req, res, next) => {
     message = `Duplicate field value entered: ${Object.keys(err.keyValue).join(", ")}`;
     statusCode = 400;
   }
+
+  console.error("[errorHandler]", {
+    method: req.method,
+    url: req.originalUrl,
+    statusCode,
+    message,
+    name: err.name,
+  });
 
   res.status(statusCode).json({
     success: false,

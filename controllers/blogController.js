@@ -3,14 +3,70 @@ import { applyLinkExtraction, autosaveBlogContent, buildVersion } from "../servi
 import { estimateReadingTime } from "../utils/text.js";
 import calculateSEOScore from "../utils/calculateSEOScore.js";
 
+const parseMaybeJson = (value, fieldName) => {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  if (!trimmed) return value;
+  if (!(trimmed.startsWith("[") || trimmed.startsWith("{"))) return value;
+
+  try {
+    return JSON.parse(trimmed);
+  } catch (error) {
+    const parseError = new Error(`Invalid JSON in field: ${fieldName}`);
+    parseError.statusCode = 400;
+    throw parseError;
+  }
+};
+
+const normalizeArrayField = (value) => {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return value;
+};
+
 export const createBlog = async (req, res, next) => {
   try {
+    console.log("[createBlog] Request received", {
+      bodyKeys: Object.keys(req.body || {}),
+      hasFile: Boolean(req.file),
+      fileField: req.file?.fieldname,
+      fileMimetype: req.file?.mimetype,
+      fileSize: req.file?.size,
+    });
+    console.log("[createBlog] Raw req.body", req.body);
+
     const blogData = {
       ...req.body,
     };
 
+    blogData.faq_json = parseMaybeJson(blogData.faq_json, "faq_json");
+    blogData.secondary_keywords = normalizeArrayField(
+      parseMaybeJson(blogData.secondary_keywords, "secondary_keywords")
+    );
+    blogData.entities = normalizeArrayField(parseMaybeJson(blogData.entities, "entities"));
+    blogData.internal_links = normalizeArrayField(
+      parseMaybeJson(blogData.internal_links, "internal_links")
+    );
+    blogData.external_links = parseMaybeJson(blogData.external_links, "external_links");
+
     if (req.file) {
       blogData.cover_image_url = req.file.path;
+    }
+
+    if (!blogData.cover_image_url) {
+      return res.status(400).json({
+        success: false,
+        message: "Cover image is required. Send multipart/form-data with field name 'cover_image'.",
+      });
+    }
+
+    if (blogData.status === "published" && !blogData.published_at) {
+      blogData.published_at = new Date();
     }
 
     if (blogData.content_mdx) {
@@ -21,13 +77,32 @@ export const createBlog = async (req, res, next) => {
       blogData.versions = [buildVersion(blogData.content_mdx)];
     }
 
-    const blog = await Blog.create(blogData);
+    console.log("[createBlog] Parsed blogData", {
+      ...blogData,
+      content_mdx: blogData.content_mdx ? `[length:${blogData.content_mdx.length}]` : undefined,
+    });
+
+    const blog = new Blog(blogData);
+    await blog.validate();
+    console.log("[createBlog] Mongoose validation passed");
+
+    await blog.save();
+    console.log("[createBlog] Blog saved successfully", {
+      id: blog._id,
+      slug: blog.slug,
+      status: blog.status,
+    });
 
     res.status(201).json({
       success: true,
       data: blog,
     });
   } catch (error) {
+    console.error("[createBlog] Failed", {
+      message: error.message,
+      name: error.name,
+      validationErrors: error?.errors ? Object.keys(error.errors) : undefined,
+    });
     next(error);
   }
 };

@@ -20,7 +20,17 @@ const getTargetFolder = (req) => {
 
 export const uploadToCloudinary = async (req, res, next) => {
   try {
-    if (!req.file) return next();
+    if (!req.file) {
+      console.warn("[uploadToCloudinary] No file received. Expected multipart field: cover_image");
+      return next();
+    }
+
+    console.log("[uploadToCloudinary] Upload started", {
+      fieldname: req.file.fieldname,
+      mimetype: req.file.mimetype,
+      size: req.file.size,
+      baseUrl: req.baseUrl,
+    });
 
     const metadata = await sharp(req.file.buffer).metadata();
     if ((metadata.width || 0) < MIN_WIDTH || (metadata.height || 0) < MIN_HEIGHT) {
@@ -40,11 +50,20 @@ export const uploadToCloudinary = async (req, res, next) => {
 
     const base64 = optimizedBuffer.toString("base64");
 
-    const uploadResult = await cloudinary.uploader.upload(`data:image/webp;base64,${base64}`, {
-      folder: getTargetFolder(req),
-      resource_type: "image",
-      format: "webp",
-    });
+    let uploadResult;
+    try {
+      uploadResult = await cloudinary.uploader.upload(`data:image/webp;base64,${base64}`, {
+        folder: getTargetFolder(req),
+        resource_type: "image",
+        format: "webp",
+      });
+    } catch (cloudinaryError) {
+      console.error("[uploadToCloudinary] Cloudinary upload failed", {
+        message: cloudinaryError.message,
+      });
+      cloudinaryError.statusCode = 502;
+      throw cloudinaryError;
+    }
 
     const optimizedUrl = cloudinary.url(uploadResult.public_id, {
       secure: true,
@@ -57,9 +76,14 @@ export const uploadToCloudinary = async (req, res, next) => {
     req.file.path = optimizedUrl;
     req.file.public_id = uploadResult.public_id;
     req.file.optimized_url = optimizedUrl;
+    console.log("[uploadToCloudinary] Upload completed", {
+      public_id: uploadResult.public_id,
+      url: optimizedUrl,
+    });
 
     next();
   } catch (error) {
+    console.error("[uploadToCloudinary] Middleware failed", { message: error.message });
     next(error);
   }
 };
